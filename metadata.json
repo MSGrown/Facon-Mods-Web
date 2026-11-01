@@ -1,0 +1,6 @@
+{
+  "name": "FACONMODS Link Generator",
+  "description": "Professional link generator and content locker inspired by Sub4Unlock, featuring verified task unlocking and campaign management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

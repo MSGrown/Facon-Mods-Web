@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: faconmods-link-generator
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: APP_PORT
+        value: 3000

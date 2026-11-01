@@ -1,0 +1,15 @@
+{
+  "name": "faconmods-link-generator",
+  "version": "1.0.0",
+  "description": "FACONMODS Link Generator and Content Locker Website",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "echo 'No build step required for static site'"
+  },
+  "keywords": ["sub4unlock", "content-locker", "link-generator", "faconmods"],
+  "author": "FACONMODS",
+  "license": "MIT"
+}

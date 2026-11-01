@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>FACONMODS - Unlock Your Link</title>
+  <meta name="description" content="Complete the required tasks to unlock the destination link on FACONMODS.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    /* Public standalone unlock page specific refinements */
+    body.unlock-standalone-page {
+      background: var(--bg-body, #F4F6F9);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .unlock-container {
+      width: 100%;
+      max-width: 580px;
+      margin: 0 auto;
+      padding: 16px 14px 40px;
+      flex: 1;
+    }
+    .public-brand-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 0 14px;
+    }
+    .public-hero-card {
+      background: #FFFFFF;
+      border-radius: var(--radius-card, 16px);
+      box-shadow: var(--shadow-card, 0 8px 30px rgba(17, 24, 39, 0.06));
+      border: 1px solid var(--color-border, #E2E8F0);
+      padding: 24px 20px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .public-hero-img-wrap {
+      width: 84px;
+      height: 84px;
+      margin: 0 auto 14px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 3px solid #3940ED;
+      box-shadow: 0 4px 16px rgba(57, 64, 237, 0.25);
+    }
+    .public-hero-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .unlock-unlocked-card {
+      margin-top: 18px;
+      background: #ECFDF5;
+      border: 1.5px solid #10B981;
+      border-radius: 12px;
+      padding: 18px;
+      text-align: center;
+    }
+    .unlocked-dest-input-wrap {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .unlocked-dest-input {
+      flex: 1;
+      height: 46px;
+      padding: 0 12px;
+      background: #FFFFFF;
+      border: 1px solid #10B981;
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: #065F46;
+      font-weight: 600;
+    }
+    .open-dest-btn {
+      height: 46px;
+      padding: 0 18px;
+      background: #10B981;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .open-dest-btn:hover {
+      background: #059669;
+    }
+  </style>
+</head>
+<body class="unlock-standalone-page">
+
+  <!-- FACONMODS Clean Public Header -->
+  <header class="public-brand-header">
+    <div class="brand-logo" style="cursor: default; pointer-events: none;">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="facon">FACON</span><span class="mods">MODS</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Wrapper: STRICTLY SIMPLE & PUBLIC -->
+  <main class="unlock-container">
+    <div class="public-hero-card">
+      <div class="public-hero-img-wrap">
+        <img src="assets/facon_hero.jpg" alt="FACONMODS" loading="eager">
+      </div>
+      <h1 class="card-title" style="margin-bottom: 6px; font-size: 22px;">Unlock Your Link</h1>
+      <p class="card-subtitle" id="unlockCampaignSubtitle" style="margin: 0 auto; max-width: 440px;">
+        Complete the required steps below to unlock the destination file or link.
+      </p>
+
+      <!-- Progress Section -->
+      <div class="progress-section" style="margin-top: 20px; text-align: left;">
+        <div class="progress-labels">
+          <span id="unlockProgressText" class="progress-text">Tasks: 0 / 0 completed</span>
+          <span id="unlockProgressPercent" class="progress-percent">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div id="unlockProgressBarFill" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Task Cards List -->
+      <div id="unlockTasksList" class="visitor-tasks-list" style="margin-top: 20px; text-align: left;">
+        <div style="text-align: center; padding: 30px; color: var(--text-muted);">
+          Loading campaign tasks...
+        </div>
+      </div>
+
+      <!-- Destination Lock Card -->
+      <div class="destination-lock-card" id="unlockDestinationLockCard">
+        <div class="lock-icon-box" id="unlockLockIconBox">
+          <svg id="unlockLockClosedSvg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <svg id="unlockLockOpenSvg" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" style="display: none;">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+          </svg>
+        </div>
+        <h3 id="unlockLockHeading" class="lock-heading">DESTINATION IS LOCKED</h3>
+        <p id="unlockLockDescription" class="lock-desc">Complete all the required steps above to unlock the destination link.</p>
+        <button id="unlockProceedBtn" class="unlock-proceed-btn" disabled onclick="handleUnlockProceed()">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+          </svg>
+          <span id="unlockProceedBtnText">LOCKED (0 REMAINING)</span>
+        </button>
+      </div>
+
+      <!-- Unlocked Destination Revealed Card (Hidden until unlocked) -->
+      <div id="destinationRevealedBox" class="unlock-unlocked-card" style="display: none;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 8px; color: #065F46; font-weight: 700; font-size: 16px;">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#10B981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Destination Link Unlocked!
+        </div>
+        <p style="font-size: 12.5px; color: #047857; margin-top: 4px;">Click the button below to proceed to your target destination.</p>
+        <div class="unlocked-dest-input-wrap">
+          <input type="text" id="revealedDestinationUrl" class="unlocked-dest-input" readonly>
+          <a href="#" id="revealedDestinationBtn" target="_blank" rel="noopener noreferrer" class="open-dest-btn">
+            OPEN LINK
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div id="toast" class="toast" role="alert" aria-live="assertive"></div>
+
+  <script src="unlock.js"></script>
+</body>
+</html>

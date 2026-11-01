@@ -1,0 +1,29 @@
+[
+  {
+    "id": "FM-TEST99",
+    "title": "Secret Game Mod Pack",
+    "destinationUrl": "https://mediafire.com/file/secret_pack.zip",
+    "tasks": [
+      {
+        "id": "subscribe",
+        "label": "YouTube Channel",
+        "actionTitle": "Subscribe to Channel",
+        "taskUrl": "https://youtube.com/@faconmods",
+        "platform": "youtube"
+      },
+      {
+        "id": "join_discord",
+        "label": "Discord Server",
+        "actionTitle": "Join Discord",
+        "taskUrl": "https://discord.gg/faconmods",
+        "platform": "discord"
+      }
+    ],
+    "manageKey": "75fd6d137a91ede4aade8103d912c8d1df392dfaffaa548a",
+    "ownerId": "creator_default",
+    "ownerUsername": "creator",
+    "createdAt": 1792578090402,
+    "clicks": 0,
+    "unlocks": 2
+  }
+]
