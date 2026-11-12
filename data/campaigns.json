@@ -1,5 +1,57 @@
 [
   {
+    "id": "9JPWYW",
+    "title": "Campaign 9JPWYW",
+    "destinationUrl": "https://mediafire.com/file/vip_game_mod.zip",
+    "tasks": [
+      {
+        "id": "sub_yt",
+        "taskType": "subscribe",
+        "label": "Subscribe Channel",
+        "actionTitle": "Subscribe on YouTube",
+        "desc": "Visit link to proceed",
+        "taskUrl": "https://youtube.com/@faconmods",
+        "platform": "youtube"
+      },
+      {
+        "id": "join_disc",
+        "taskType": "join_discord",
+        "label": "Join Discord",
+        "actionTitle": "Join Discord Community",
+        "desc": "Visit link to proceed",
+        "taskUrl": "https://discord.gg/faconmods",
+        "platform": "discord"
+      }
+    ],
+    "status": "active",
+    "manageKey": "83925801e41d97b93219437ce1ea3f8998df590ac516a771",
+    "ownerId": "creator_default",
+    "ownerUsername": "creator",
+    "createdAt": 1794479424215,
+    "clicks": 0,
+    "unlocks": 1
+  },
+  {
+    "id": "2T42JY",
+    "title": "Campaign 2T42JY",
+    "destinationUrl": "https://mediafire.com/file/test_pkg.zip",
+    "tasks": [
+      {
+        "id": "sub_yt",
+        "label": "Subscribe",
+        "actionTitle": "Subscribe Channel",
+        "taskUrl": "https://youtube.com/@faconmods",
+        "platform": "youtube"
+      }
+    ],
+    "manageKey": "a07f778ec70b1c774643cfa343bfb890e6964fd8735ad1d2",
+    "ownerId": "creator_default",
+    "ownerUsername": "creator",
+    "createdAt": 1794479112239,
+    "clicks": 0,
+    "unlocks": 1
+  },
+  {
     "id": "2VDCBX",
     "title": "Campaign 2VDCBX",
     "destinationUrl": "https://mediafire.com/file/mod_v3.zip",

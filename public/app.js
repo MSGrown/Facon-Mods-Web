@@ -709,13 +709,14 @@ async function handleGenerate() {
   // Generate unique short 6-char campaign ID (e.g. AB12CD) and secure management key (48-char hex)
   const clientKey = Array.from(window.crypto.getRandomValues(new Uint8Array(24)))
     .map(b => b.toString(16).padStart(2, '0')).join('');
-  const campaignId = generateShortCampaignId();
+  let campaignId = generateShortCampaignId();
 
   const campaignData = {
     id: campaignId,
     title: `Campaign ${campaignId}`,
     destinationUrl: destValidation.formattedUrl,
     tasks: preparedTasks,
+    status: 'active',
     manageKey: clientKey,
     createdAt: Date.now(),
     clicks: 0,
@@ -725,7 +726,7 @@ async function handleGenerate() {
   let assignedKey = clientKey;
 
   try {
-    // Send to backend server API
+    // Send to backend server database API
     const headers = { 'Content-Type': 'application/json' };
     const authToken = getAuthToken();
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
@@ -735,15 +736,42 @@ async function handleGenerate() {
       headers: headers,
       body: JSON.stringify(campaignData)
     });
+
     if (res.ok) {
       const data = await res.json();
+      // Bind to actual server-saved campaign ID and manageKey
+      if (data && data.campaign && data.campaign.id) {
+        campaignId = data.campaign.id;
+        campaignData.id = data.campaign.id;
+        campaignData.title = data.campaign.title || `Campaign ${data.campaign.id}`;
+      }
       if (data && data.manageKey) {
         assignedKey = data.manageKey;
         campaignData.manageKey = assignedKey;
       }
+    } else {
+      let errorMsg = 'Failed to save campaign on server.';
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.error) errorMsg = errJson.error;
+      } catch (_) {}
+      showToast(errorMsg);
+      if (btnText && btnSpinner) {
+        btnText.style.display = 'flex';
+        btnSpinner.style.display = 'none';
+        btn.disabled = false;
+      }
+      return;
     }
-  } catch (_) {
-    // Static fallback
+  } catch (networkErr) {
+    console.error('Campaign creation network error:', networkErr);
+    showToast('Network error: Unable to connect to server to save campaign.');
+    if (btnText && btnSpinner) {
+      btnText.style.display = 'flex';
+      btnSpinner.style.display = 'none';
+      btn.disabled = false;
+    }
+    return;
   }
 
   // Save creator authorization key and campaign to persistent store

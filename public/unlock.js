@@ -182,6 +182,18 @@ function setupLifecycleListeners() {
 
 // Parse URL for campaign ID or fallback payload
 async function loadCampaignFromUrl() {
+  // 1. Check server-injected campaign data (instant, zero-latency on mobile devices)
+  if (window.__INITIAL_CAMPAIGN__ && Array.isArray(window.__INITIAL_CAMPAIGN__.tasks) && window.__INITIAL_CAMPAIGN__.tasks.length > 0) {
+    setupCampaign(window.__INITIAL_CAMPAIGN__);
+    return;
+  }
+
+  if (window.__CAMPAIGN_NOT_FOUND__ === true) {
+    showNotFoundError(window.__INITIAL_CAMPAIGN_ID__ || '');
+    return;
+  }
+
+  // 2. Parse URL for campaign ID or fallback payload
   const params = new URLSearchParams(window.location.search);
   let campaignId = params.get('c') || params.get('id');
 
@@ -206,10 +218,14 @@ async function loadCampaignFromUrl() {
     }
   }
 
+  if (campaignId) {
+    campaignId = campaignId.trim().replace(/\.html$/i, '');
+  }
+
   const encodedData = params.get('d') || params.get('data');
 
   if (!campaignId && !encodedData) {
-    showErrorState('No destination specified. Please check your link.');
+    showNotFoundError('');
     return;
   }
 
@@ -218,21 +234,26 @@ async function loadCampaignFromUrl() {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/click`, { method: 'POST' }).catch(() => {});
   }
 
-  // 1. Try server fetch for sanitized public campaign data
+  // 3. Primary: Fetch sanitized campaign info from persistent server backend database
   if (campaignId) {
     try {
       const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`);
       if (res.ok) {
         const data = await res.json();
-        setupCampaign(data);
+        if (data && data.id && Array.isArray(data.tasks) && data.tasks.length > 0) {
+          setupCampaign(data);
+          return;
+        }
+      } else if (res.status === 404 || res.status === 410) {
+        showNotFoundError(campaignId);
         return;
       }
     } catch (e) {
-      console.warn('Backend fetch failed, falling back to client cache/payload:', e);
+      console.warn('Backend campaign fetch error, checking storage fallback:', e);
     }
   }
 
-  // 2. Fallback to localStorage cache (supports all storage keys)
+  // 4. Secondary fallback: Local storage (for creator testing or offline caching)
   if (campaignId) {
     try {
       const dbKeys = ['faconmods_campaigns_db_v1', 'faconmods_campaigns_v2', 'faconmods_campaigns_v1'];
@@ -240,8 +261,8 @@ async function loadCampaignFromUrl() {
         const raw = localStorage.getItem(k);
         if (raw) {
           const list = JSON.parse(raw);
-          const found = list.find(c => c && c.id && c.id.toLowerCase() === campaignId.toLowerCase());
-          if (found) {
+          const found = list.find(c => c && c.id && c.id.toUpperCase() === campaignId.toUpperCase());
+          if (found && Array.isArray(found.tasks) && found.tasks.length > 0) {
             setupCampaign(found);
             return;
           }
@@ -250,23 +271,33 @@ async function loadCampaignFromUrl() {
     } catch (_) {}
   }
 
-  // 3. Fallback to encoded payload if offline / static host
+  // 5. Fallback to encoded payload if static host
   if (encodedData) {
     try {
       const json = decodeURIComponent(atob(encodedData));
       const parsed = JSON.parse(json);
-      setupCampaign(parsed);
-      return;
+      if (parsed && Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+        setupCampaign(parsed);
+        return;
+      }
     } catch (e) {
       console.error('Failed to decode payload:', e);
     }
   }
 
-  showErrorState('The requested destination could not be loaded. Please check your link.');
+  // If not found in any source, display clean campaign-not-found error
+  showNotFoundError(campaignId);
 }
 
 async function setupCampaign(campaign) {
   currentCampaign = campaign;
+
+  // Ensure progress bar and lock card are visible
+  const progressSec = document.getElementById('unlockProgressSection');
+  if (progressSec) progressSec.style.display = 'block';
+
+  const lockCard = document.getElementById('unlockDestinationLockCard');
+  if (lockCard) lockCard.style.display = 'block';
 
   // Clean heading: Never show campaign IDs or technical identifiers on public page
   const subtitle = document.getElementById('unlockCampaignSubtitle');
@@ -659,16 +690,44 @@ async function handleUnlockProceed() {
   }
 }
 
-function showErrorState(msg) {
+function showNotFoundError(campaignId) {
+  // Hide progress section and destination lock card when campaign is invalid
+  const progressSec = document.getElementById('unlockProgressSection');
+  if (progressSec) progressSec.style.display = 'none';
+
+  const lockCard = document.getElementById('unlockDestinationLockCard');
+  if (lockCard) lockCard.style.display = 'none';
+
+  const subtitle = document.getElementById('unlockCampaignSubtitle');
+  if (subtitle) {
+    subtitle.textContent = 'This link is unavailable or has expired.';
+  }
+
   const container = document.getElementById('unlockTasksList');
   if (container) {
     container.innerHTML = `
-      <div style="background: #FEF2F2; border: 1.5px solid #F87171; border-radius: 12px; padding: 20px; text-align: center; color: #991B1B;">
-        <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Destination Unavailable</h3>
-        <p style="font-size: 13px;">${escapeHtml(msg)}</p>
+      <div class="campaign-not-found-card" style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 14px; padding: 28px 18px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.04); margin-top: 10px;">
+        <div style="width: 54px; height: 54px; border-radius: 50%; background: #FEE2E2; color: #DC2626; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+        </div>
+        <h2 style="font-size: 18px; font-weight: 800; color: #0F172A; margin-bottom: 8px;">Link Not Found</h2>
+        <p style="font-size: 13.5px; color: #64748B; max-width: 380px; margin: 0 auto 20px; line-height: 1.5;">
+          This locked link does not exist or may have been removed. Please check the URL or request a new link from the creator.
+        </p>
+        <a href="/" style="display: inline-flex; align-items: center; justify-content: center; height: 46px; padding: 0 24px; background: #3940ED; color: #FFFFFF; font-weight: 700; font-size: 14px; border-radius: 10px; text-decoration: none; transition: background 0.2s;">
+          CREATE A NEW LINK
+        </a>
       </div>
     `;
   }
+}
+
+function showErrorState(msg) {
+  showNotFoundError('');
 }
 
 function escapeHtml(str) {

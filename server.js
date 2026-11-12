@@ -38,22 +38,18 @@ try {
   const luaPath = '/etc/nginx/user_auth_verification.lua';
   if (fs.existsSync(luaPath)) {
     let luaContent = fs.readFileSync(luaPath, 'utf8');
-    if (!luaContent.includes('/unlock.html')) {
-      const target = 'if ngx.var.host == "localhost" then\n  return\nend';
-      const patch = `if ngx.var.host == "localhost" then
-  return
-end
-
--- Allow public unlocking page, assets, and visitor APIs without Google login
+    if (!luaContent.includes('Allow public unlocking page')) {
+      const targetA = 'if ngx.var.host == "localhost" or ngx.var.host == "127.0.0.1" or ngx.var.host == "[::1]" then\n  return\nend';
+      const targetB = 'if ngx.var.host == "localhost" then\n  return\nend';
+      const patch = `\n-- Allow public unlocking page, assets, and visitor APIs without Google login
 local req_uri = ngx.var.uri or ""
 if req_uri == "/" or req_uri == "/index.html" or req_uri == "/unlock.html" or req_uri == "/unlock"
    or string.match(req_uri, "^/p/")
    or string.match(req_uri, "^/f/")
    or string.match(req_uri, "^/l/")
-   or string.match(req_uri, "^/api/campaigns/[^/]+$")
-   or string.match(req_uri, "^/api/campaigns/[^/]+/unlock$")
-   or string.match(req_uri, "^/api/campaigns/[^/]+/click$")
+   or string.match(req_uri, "^/api/campaigns")
    or string.match(req_uri, "^/api/auth/")
+   or string.match(req_uri, "^/api/health")
    or string.match(req_uri, "^/assets/")
    or string.match(req_uri, "%.css$")
    or string.match(req_uri, "%.js$")
@@ -64,13 +60,14 @@ if req_uri == "/" or req_uri == "/index.html" or req_uri == "/unlock.html" or re
    or string.match(req_uri, "%.zip$") then
   return
 end`;
-      if (luaContent.includes(target)) {
-        luaContent = luaContent.replace(target, patch);
+      if (luaContent.includes(targetA)) {
+        luaContent = luaContent.replace(targetA, targetA + patch);
         fs.writeFileSync(luaPath, luaContent, 'utf8');
-        console.log('Self-healing: Patched /etc/nginx/user_auth_verification.lua for public unlock access');
-        import('node:child_process').then(cp => {
-          cp.exec('nginx -s reload', () => {});
-        });
+        import('node:child_process').then(cp => { cp.exec('nginx -s reload', () => {}); });
+      } else if (luaContent.includes(targetB)) {
+        luaContent = luaContent.replace(targetB, targetB + patch);
+        fs.writeFileSync(luaPath, luaContent, 'utf8');
+        import('node:child_process').then(cp => { cp.exec('nginx -s reload', () => {}); });
       }
     }
   }
@@ -89,10 +86,13 @@ function readJsonFile(filePath, defaultValue = []) {
 }
 
 function writeJsonFile(filePath, data) {
+  const tempPath = `${filePath}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tempPath, filePath);
   } catch (err) {
     console.error(`Error writing ${filePath}:`, err);
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
   }
 }
 
@@ -248,13 +248,15 @@ function toPublicCampaign(campaign) {
   return {
     id: campaign.id,
     title: campaign.title || `Campaign ${campaign.id}`,
+    status: campaign.status || 'active',
     tasks: (campaign.tasks || []).map(t => ({
       id: t.id,
-      label: t.label,
-      actionTitle: t.actionTitle,
-      desc: t.desc,
+      taskType: t.taskType || t.id,
+      label: t.label || t.actionTitle || 'Visit Link',
+      actionTitle: t.actionTitle || t.label || 'Visit Link',
+      desc: t.desc || 'Visit link to proceed',
       taskUrl: t.taskUrl,
-      platform: t.platform
+      platform: t.platform || 'link'
     })),
     createdAt: campaign.createdAt
   };
@@ -425,14 +427,26 @@ const server = http.createServer((req, res) => {
 
         const campaigns = readCampaigns();
 
+        const formattedTasks = payload.tasks.map((t, idx) => ({
+          id: t.id || `task_${idx + 1}`,
+          taskType: t.taskType || t.id || 'visit_link',
+          label: t.label || t.actionTitle || 'Visit Link',
+          actionTitle: t.actionTitle || t.label || 'Visit Link',
+          desc: t.desc || 'Visit link to proceed',
+          taskUrl: t.taskUrl,
+          platform: t.platform || 'link'
+        }));
+
         // Prevent duplicate link generation: If identical campaign already exists, return existing
         const duplicate = campaigns.find(c => {
           if (!c || c.destinationUrl !== payload.destinationUrl) return false;
-          if (!Array.isArray(c.tasks) || c.tasks.length !== payload.tasks.length) return false;
-          return payload.tasks.every(pt => c.tasks.some(ct => ct.id === pt.id && ct.taskUrl === pt.taskUrl));
+          if (!Array.isArray(c.tasks) || c.tasks.length !== formattedTasks.length) return false;
+          return formattedTasks.every(pt => c.tasks.some(ct => (ct.taskType === pt.taskType || ct.id === pt.id) && ct.taskUrl === pt.taskUrl));
         });
 
         if (duplicate) {
+          if (!duplicate.status) duplicate.status = 'active';
+          writeCampaigns(campaigns);
           return sendJson(200, {
             success: true,
             campaign: toPublicCampaign(duplicate),
@@ -443,15 +457,17 @@ const server = http.createServer((req, res) => {
         const currentUser = getAuthenticatedUser(req);
         // Generate cryptographically secure management key (48-character hex)
         const manageKey = payload.manageKey || crypto.randomBytes(24).toString('hex');
-        const campaignId = (payload.id && typeof payload.id === 'string' && payload.id.trim())
-          ? payload.id.trim()
+        const rawId = (payload.id && typeof payload.id === 'string' && payload.id.trim())
+          ? payload.id.trim().toUpperCase()
           : generateShortServerCampaignId();
+        const campaignId = rawId.replace(/[^A-Z0-9_-]/g, '') || generateShortServerCampaignId();
 
         const newCampaign = {
           id: campaignId,
           title: payload.title || `Campaign ${campaignId}`,
           destinationUrl: payload.destinationUrl,
-          tasks: payload.tasks,
+          tasks: formattedTasks,
+          status: payload.status || 'active',
           manageKey: manageKey,
           ownerId: currentUser ? currentUser.id : 'creator_default',
           ownerUsername: currentUser ? currentUser.username : 'creator',
@@ -460,7 +476,7 @@ const server = http.createServer((req, res) => {
           unlocks: 0
         };
 
-        const existingIdx = campaigns.findIndex(c => c.id === newCampaign.id);
+        const existingIdx = campaigns.findIndex(c => c && c.id && c.id.toUpperCase() === newCampaign.id);
         if (existingIdx >= 0) {
           const existing = campaigns[existingIdx];
           // Check authorization before allowing overwrite
@@ -622,10 +638,14 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && getMatch) {
     const id = getMatch[1];
     const campaigns = readCampaigns();
-    const campaign = campaigns.find(c => c.id === id);
+    const campaign = campaigns.find(c => c && c.id && c.id.toUpperCase() === id.toUpperCase());
 
     if (!campaign) {
-      return sendJson(404, { error: 'Campaign not found' });
+      return sendJson(404, { error: 'Campaign not found', id });
+    }
+
+    if (campaign.status === 'deleted' || campaign.status === 'disabled') {
+      return sendJson(410, { error: 'This campaign is no longer active', id });
     }
 
     // Return sanitized public campaign (destination URL and manage key are NEVER exposed)
@@ -637,11 +657,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && progressGetMatch) {
     const id = progressGetMatch[1];
     const visitorId = parsedUrl.searchParams.get('visitorId') || 'anon';
-    const allProgress = readProgress();
-    const key = `${id}_${visitorId}`;
-    const p = allProgress[key] || { completedTasks: [], isUnlocked: false };
     const campaigns = readCampaigns();
-    const campaign = campaigns.find(c => c.id === id);
+    const campaign = campaigns.find(c => c && c.id && c.id.toUpperCase() === id.toUpperCase());
+    const canonicalId = campaign ? campaign.id : id.toUpperCase();
+    const allProgress = readProgress();
+    const key = `${canonicalId}_${visitorId}`;
+    const p = allProgress[key] || { completedTasks: [], isUnlocked: false };
     if (p.isUnlocked && campaign) {
       p.destinationUrl = campaign.destinationUrl;
     }
@@ -658,8 +679,11 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body || '{}');
         const visitorId = payload.visitorId || 'anon';
+        const campaigns = readCampaigns();
+        const campaign = campaigns.find(c => c && c.id && c.id.toUpperCase() === id.toUpperCase());
+        const canonicalId = campaign ? campaign.id : id.toUpperCase();
         const allProgress = readProgress();
-        const key = `${id}_${visitorId}`;
+        const key = `${canonicalId}_${visitorId}`;
         const existing = allProgress[key] || { completedTasks: [], isUnlocked: false };
         if (Array.isArray(payload.completedTasks)) {
           existing.completedTasks = Array.from(new Set([...existing.completedTasks, ...payload.completedTasks]));
@@ -683,7 +707,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && clickMatch) {
     const id = clickMatch[1];
     const campaigns = readCampaigns();
-    const campaign = campaigns.find(c => c.id === id);
+    const campaign = campaigns.find(c => c && c.id && c.id.toUpperCase() === id.toUpperCase());
     if (campaign) {
       campaign.clicks = (campaign.clicks || 0) + 1;
       writeCampaigns(campaigns);
@@ -699,7 +723,7 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
       const campaigns = readCampaigns();
-      const campaign = campaigns.find(c => c.id === id);
+      const campaign = campaigns.find(c => c && c.id && c.id.toUpperCase() === id.toUpperCase());
       if (!campaign) {
         return sendJson(404, { error: 'Campaign not found' });
       }
@@ -713,7 +737,7 @@ const server = http.createServer((req, res) => {
       } catch (_) {}
 
       const allProgress = readProgress();
-      const key = `${id}_${visitorId}`;
+      const key = `${campaign.id}_${visitorId}`;
       const existing = allProgress[key] || { completedTasks: [], isUnlocked: false };
 
       // Increment campaign analytics only once per visitor
@@ -734,17 +758,44 @@ const server = http.createServer((req, res) => {
 
   // --- PAGE ROUTING & STATIC FILE SERVING ---
 
-  // Friendly Public Unlock Route: /unlock, /unlock.html, /p/:id, /f/:id, /l/:id
-  if (pathname === '/unlock' || pathname === '/unlock.html' || pathname.startsWith('/p/') || pathname.startsWith('/f/') || pathname.startsWith('/l/')) {
+  // Friendly Public Unlock Route: /unlock, /unlock.html, /p/:id, /f/:id, /l/:id, /unlock/:id
+  const publicRouteMatch = pathname.match(/^\/(?:f|l|p|unlock)\/([A-Za-z0-9_-]+)\/?$/i);
+  if (pathname === '/unlock' || pathname === '/unlock.html' || pathname.startsWith('/p/') || pathname.startsWith('/f/') || pathname.startsWith('/l/') || pathname.startsWith('/unlock/') || publicRouteMatch) {
+    let matchedId = null;
+    if (publicRouteMatch) {
+      matchedId = publicRouteMatch[1];
+    } else {
+      const segments = pathname.split('/').filter(Boolean);
+      if (segments.length >= 2 && ['f', 'l', 'p', 'unlock'].includes(segments[0].toLowerCase())) {
+        matchedId = segments[1];
+      }
+    }
+
     const unlockHtmlPath = path.join(PUBLIC_DIR, 'unlock.html');
-    fs.readFile(unlockHtmlPath, (err, content) => {
+    fs.readFile(unlockHtmlPath, 'utf8', (err, htmlContent) => {
       if (err) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end('Error loading unlock page');
         return;
       }
+
+      let modifiedHtml = htmlContent;
+      if (matchedId) {
+        const cleanId = matchedId.trim().toUpperCase();
+        const campaigns = readCampaigns();
+        const campaign = campaigns.find(c => c && c.id && c.id.toUpperCase() === cleanId);
+        let injectionScript = '';
+        if (campaign) {
+          const publicData = toPublicCampaign(campaign);
+          injectionScript = `<script id="fm-injected-campaign">window.__INITIAL_CAMPAIGN__ = ${JSON.stringify(publicData)}; window.__INITIAL_CAMPAIGN_ID__ = ${JSON.stringify(campaign.id)};</script>`;
+        } else {
+          injectionScript = `<script id="fm-injected-campaign">window.__INITIAL_CAMPAIGN__ = null; window.__INITIAL_CAMPAIGN_ID__ = ${JSON.stringify(cleanId)}; window.__CAMPAIGN_NOT_FOUND__ = true;</script>`;
+        }
+        modifiedHtml = modifiedHtml.replace('</head>', `${injectionScript}\n</head>`);
+      }
+
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(content);
+      res.end(modifiedHtml);
     });
     return;
   }

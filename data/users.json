@@ -1,0 +1,9 @@
+[
+  {
+    "id": "creator_1",
+    "username": "creator",
+    "passwordHash": "57d8b88174eb12b33d605c19f8b705fc560ee2c9c96f32b2d9a5ffb901bcc1325ea5257e37e503b6191d50cea6c8301f764719ee52b6515b8b6c946d89d18381",
+    "salt": "b3627f595d3e7a590d8d8b61a3eee3ab",
+    "createdAt": 1794479103918
+  }
+]
