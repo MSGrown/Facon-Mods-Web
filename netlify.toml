@@ -2,6 +2,26 @@
   publish = "public"
 
 [[redirects]]
+  from = "/f/*"
+  to = "/unlock.html"
+  status = 200
+
+[[redirects]]
+  from = "/l/*"
+  to = "/unlock.html"
+  status = 200
+
+[[redirects]]
+  from = "/p/*"
+  to = "/unlock.html"
+  status = 200
+
+[[redirects]]
+  from = "/unlock"
+  to = "/unlock.html"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

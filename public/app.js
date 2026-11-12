@@ -170,11 +170,36 @@ function getBaseOrigin() {
   return origin;
 }
 
-// Build PUBLIC Link for Visitors (Standalone simple unlocker page)
+// Generate short unique campaign ID (6 uppercase alphanumeric characters, e.g. AB12CD)
+function generateShortCampaignId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const existingCampaigns = getSavedCampaigns();
+  const existingIds = new Set(existingCampaigns.map(c => (c.id || '').toUpperCase()));
+
+  for (let attempt = 0; attempt < 25; attempt++) {
+    let id = '';
+    const bytes = new Uint8Array(6);
+    if (window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+      for (let i = 0; i < 6; i++) {
+        id += chars[bytes[i] % chars.length];
+      }
+    } else {
+      for (let i = 0; i < 6; i++) {
+        id += chars[Math.floor(Math.random() * chars.length)];
+      }
+    }
+    if (!existingIds.has(id)) {
+      return id;
+    }
+  }
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+// Build Short Public Link for Visitors (e.g. https://faconmods.netlify.app/f/AB12CD)
 function buildPublicUrl(campaign) {
   const origin = getBaseOrigin();
-  const encoded = encodeCampaignData(campaign);
-  return `${origin}/unlock.html?c=${campaign.id}${encoded ? '&d=' + encoded : ''}`;
+  return `${origin}/f/${campaign.id}`;
 }
 
 // Build PRIVATE Management Link for Creator (Dashboard with authorization token)
@@ -661,14 +686,34 @@ async function handleGenerate() {
     btn.disabled = true;
   }
 
-  // Generate unique campaign ID and secure management key (48-char hex)
+  // Requirement: Do not create duplicate links for the same campaign
+  const existingCampaigns = getSavedCampaigns();
+  const existingDuplicate = existingCampaigns.find(c => {
+    if (!c || c.destinationUrl !== destValidation.formattedUrl) return false;
+    if (!Array.isArray(c.tasks) || c.tasks.length !== preparedTasks.length) return false;
+    return preparedTasks.every(pt => c.tasks.some(ct => ct.id === pt.id && ct.taskUrl === pt.taskUrl));
+  });
+
+  if (existingDuplicate) {
+    currentGeneratedCampaign = existingDuplicate;
+    displayResultBox(existingDuplicate);
+    showToast(`Your locked link for campaign ${existingDuplicate.id} is ready!`);
+    if (btnText && btnSpinner) {
+      btnText.style.display = 'flex';
+      btnSpinner.style.display = 'none';
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  // Generate unique short 6-char campaign ID (e.g. AB12CD) and secure management key (48-char hex)
   const clientKey = Array.from(window.crypto.getRandomValues(new Uint8Array(24)))
     .map(b => b.toString(16).padStart(2, '0')).join('');
-  const campaignId = 'FM-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  const campaignId = generateShortCampaignId();
 
   const campaignData = {
     id: campaignId,
-    title: `FACONMODS Campaign #${campaignId}`,
+    title: `Campaign ${campaignId}`,
     destinationUrl: destValidation.formattedUrl,
     tasks: preparedTasks,
     manageKey: clientKey,
@@ -713,8 +758,8 @@ async function handleGenerate() {
     btn.disabled = false;
   }
 
-  // Display Result Box with TWO distinct links
-  displayResultBox(campaignData, assignedKey);
+  // Display Result Box with single clean locked link
+  displayResultBox(campaignData);
   showToast(`Campaign ${campaignId} generated successfully!`);
 }
 
@@ -768,59 +813,60 @@ function decodeCampaignData(encoded) {
   }
 }
 
-// Display Result Box with TWO Separate Links
-function displayResultBox(campaign, manageKey) {
+// Display Result Box with ONE Clean Locked Link
+function displayResultBox(campaign) {
   const box = document.getElementById('resultBox');
   const meta = document.getElementById('resultMeta');
+  const lockedInput = document.getElementById('lockedUrlInput');
   const publicInput = document.getElementById('publicUrlInput');
-  const privateInput = document.getElementById('privateUrlInput');
-  if (!box || !publicInput || !privateInput) return;
+  if (!box) return;
 
-  const key = manageKey || getCreatorKey(campaign.id) || campaign.manageKey || '';
   const publicUrl = buildPublicUrl(campaign);
-  const privateUrl = buildPrivateUrl(campaign.id, key);
 
   if (meta) {
-    meta.textContent = `Campaign ID: ${campaign.id} • ${campaign.tasks.length} required tasks`;
+    meta.textContent = `Campaign ID: ${campaign.id} • ${campaign.tasks.length} required task${campaign.tasks.length === 1 ? '' : 's'}`;
   }
 
-  publicInput.value = publicUrl;
-  privateInput.value = privateUrl;
+  if (lockedInput) lockedInput.value = publicUrl;
+  if (publicInput) publicInput.value = publicUrl;
+
   box.style.display = 'block';
 
   // Smooth scroll to result
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-// Copy Public Link
-function copyPublicLink() {
-  const input = document.getElementById('publicUrlInput');
-  const btnText = document.getElementById('copyPublicBtnText');
-  if (!input) return;
+// Copy Locked Link
+function copyLockedLink() {
+  const input = document.getElementById('lockedUrlInput') || document.getElementById('publicUrlInput');
+  const btn = document.getElementById('copyLockedBtn');
+  const btnText = document.getElementById('copyLockedBtnText');
+  if (!input || !input.value) return;
   copyText(input.value);
+  if (btn) btn.classList.add('copied');
   if (btnText) {
     btnText.textContent = 'COPIED!';
-    setTimeout(() => { btnText.textContent = 'COPY'; }, 2000);
+    setTimeout(() => {
+      btnText.textContent = 'COPY LINK';
+      if (btn) btn.classList.remove('copied');
+    }, 2000);
   }
 }
 
-// Copy Private Management Link
-function copyPrivateLink() {
-  const input = document.getElementById('privateUrlInput');
-  const btnText = document.getElementById('copyPrivateBtnText');
-  if (!input) return;
-  copyText(input.value);
-  if (btnText) {
-    btnText.textContent = 'COPIED!';
-    setTimeout(() => { btnText.textContent = 'COPY'; }, 2000);
+// Test Locked Link
+function testLockedLink() {
+  const input = document.getElementById('lockedUrlInput') || document.getElementById('publicUrlInput');
+  if (input && input.value) {
+    window.open(input.value, '_blank');
   }
 }
 
-// Share Public Link
+// Backward compatibility helpers
+function copyPublicLink() { copyLockedLink(); }
+function copyPrivateLink() { copyLockedLink(); }
 function sharePublicLink() {
-  const input = document.getElementById('publicUrlInput');
-  if (!input) return;
-
+  const input = document.getElementById('lockedUrlInput') || document.getElementById('publicUrlInput');
+  if (!input || !input.value) return;
   if (navigator.share) {
     navigator.share({
       title: 'FACONMODS Locked Link',
@@ -828,23 +874,13 @@ function sharePublicLink() {
       url: input.value
     }).catch(() => {});
   } else {
-    copyPublicLink();
+    copyLockedLink();
   }
 }
-
-// Test Public Link
-function openCurrentCampaignPublic() {
-  const input = document.getElementById('publicUrlInput');
-  if (input && input.value) {
-    window.open(input.value, '_blank');
-  }
-}
-
-// Open Management for Current Campaign
+function openCurrentCampaignPublic() { testLockedLink(); }
 function openCurrentCampaignManage() {
-  const input = document.getElementById('privateUrlInput');
-  if (input && input.value) {
-    window.location.href = input.value;
+  if (currentGeneratedCampaign) {
+    loadManageCampaign(currentGeneratedCampaign.id, currentGeneratedCampaign.manageKey);
   }
 }
 
@@ -1555,6 +1591,14 @@ function checkUrlParamsForCampaign() {
     // Creator opened manage route without key in query -> verify session or prompt login
     document.body.classList.remove('public-visitor-mode');
     loadManageCampaign(manageId, null);
+    return;
+  }
+
+  // Check if visitor entered via short path /f/ID or /l/ID or /p/ID
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  if (pathParts.length >= 2 && ['f', 'l', 'p'].includes(pathParts[0].toLowerCase())) {
+    const id = pathParts[1];
+    window.location.replace(`/unlock.html?c=${encodeURIComponent(id)}`);
     return;
   }
 

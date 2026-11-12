@@ -1,5 +1,25 @@
 [
   {
+    "id": "2VDCBX",
+    "title": "Campaign 2VDCBX",
+    "destinationUrl": "https://mediafire.com/file/mod_v3.zip",
+    "tasks": [
+      {
+        "id": "subscribe",
+        "label": "Subscribe YouTube",
+        "actionTitle": "Subscribe to Channel",
+        "taskUrl": "https://youtube.com/@faconmods",
+        "platform": "youtube"
+      }
+    ],
+    "manageKey": "8bd253697217f0c954b4a9bad20618c02b2d4435b73787d5",
+    "ownerId": "creator_default",
+    "ownerUsername": "creator",
+    "createdAt": 1794466466642,
+    "clicks": 0,
+    "unlocks": 1
+  },
+  {
     "id": "FM-TEST99",
     "title": "Secret Game Mod Pack",
     "destinationUrl": "https://mediafire.com/file/secret_pack.zip",

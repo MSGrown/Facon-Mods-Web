@@ -3,6 +3,10 @@
   "cleanUrls": true,
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/server.js" },
+    { "source": "/f/(.*)", "destination": "/public/unlock.html" },
+    { "source": "/l/(.*)", "destination": "/public/unlock.html" },
+    { "source": "/p/(.*)", "destination": "/public/unlock.html" },
+    { "source": "/unlock", "destination": "/public/unlock.html" },
     { "source": "/(.*)", "destination": "/public/$1" }
   ]
 }

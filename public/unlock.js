@@ -108,10 +108,27 @@ function setupLifecycleListeners() {
 // Parse URL for campaign ID or fallback payload
 async function loadCampaignFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  let campaignId = params.get('c');
-  const pathParts = window.location.pathname.split('/');
-  if (!campaignId && pathParts.length > 2 && (pathParts[1] === 'p' || pathParts[1] === 'unlock')) {
-    campaignId = pathParts[2];
+  let campaignId = params.get('c') || params.get('id');
+
+  // Check path segments (e.g. /f/AB12CD, /l/AB12CD, /p/AB12CD, /unlock/AB12CD)
+  if (!campaignId) {
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    if (pathParts.length >= 2 && ['f', 'l', 'p', 'unlock'].includes(pathParts[0].toLowerCase())) {
+      campaignId = pathParts[1];
+    } else if (pathParts.length === 1 && !['unlock.html', 'unlock', 'index.html'].includes(pathParts[0].toLowerCase())) {
+      campaignId = pathParts[0];
+    }
+  }
+
+  // Check hash segments (e.g. #/f/AB12CD or #AB12CD)
+  if (!campaignId && window.location.hash) {
+    const hashClean = window.location.hash.replace(/^#\/?/, '');
+    const hashParts = hashClean.split('/').filter(Boolean);
+    if (hashParts.length >= 2 && ['f', 'l', 'p', 'unlock'].includes(hashParts[0].toLowerCase())) {
+      campaignId = hashParts[1];
+    } else if (hashParts.length === 1 && hashParts[0].length >= 3) {
+      campaignId = hashParts[0];
+    }
   }
 
   const encodedData = params.get('d') || params.get('data');
@@ -123,13 +140,13 @@ async function loadCampaignFromUrl() {
 
   // Record arrival click metric
   if (campaignId) {
-    fetch(`/api/campaigns/${campaignId}/click`, { method: 'POST' }).catch(() => {});
+    fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/click`, { method: 'POST' }).catch(() => {});
   }
 
   // 1. Try server fetch for sanitized public campaign data
   if (campaignId) {
     try {
-      const res = await fetch(`/api/campaigns/${campaignId}`);
+      const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`);
       if (res.ok) {
         const data = await res.json();
         setupCampaign(data);
@@ -140,7 +157,25 @@ async function loadCampaignFromUrl() {
     }
   }
 
-  // 2. Fallback to encoded payload if offline / static host
+  // 2. Fallback to localStorage cache (supports all storage keys)
+  if (campaignId) {
+    try {
+      const dbKeys = ['faconmods_campaigns_db_v1', 'faconmods_campaigns_v2', 'faconmods_campaigns_v1'];
+      for (const k of dbKeys) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const list = JSON.parse(raw);
+          const found = list.find(c => c && c.id && c.id.toLowerCase() === campaignId.toLowerCase());
+          if (found) {
+            setupCampaign(found);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. Fallback to encoded payload if offline / static host
   if (encodedData) {
     try {
       const json = decodeURIComponent(atob(encodedData));
@@ -150,18 +185,6 @@ async function loadCampaignFromUrl() {
     } catch (e) {
       console.error('Failed to decode payload:', e);
     }
-  }
-
-  // 3. Fallback to localStorage cache
-  if (campaignId) {
-    try {
-      const saved = JSON.parse(localStorage.getItem('faconmods_campaigns_v2') || '[]');
-      const found = saved.find(c => c.id === campaignId);
-      if (found) {
-        setupCampaign(found);
-        return;
-      }
-    } catch (_) {}
   }
 
   showErrorState(`Campaign ${campaignId || ''} could not be loaded.`);

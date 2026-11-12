@@ -143,65 +143,37 @@
           <span class="btn-spinner" style="display: none;"></span>
         </button>
 
-        <!-- Result Box with TWO Separate Links -->
+        <!-- Result Box with Single Clean Locked Link -->
         <div class="result-box" id="resultBox" style="display: none;">
           <div class="result-header">
             <div class="success-badge">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#10B981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
             </div>
             <div>
-              <h3 class="result-title">Campaign Generated Successfully!</h3>
-              <p class="result-meta" id="resultMeta">Campaign ID: FM-XXXXXX • 3 tasks required</p>
+              <h3 class="result-title">Campaign Created Successfully!</h3>
+              <p class="result-meta" id="resultMeta">Campaign ID: AB12CD • 3 tasks required</p>
             </div>
           </div>
 
-          <!-- 1. PUBLIC LINK — FOR EVERYONE -->
-          <div class="link-field-card public-card">
+          <!-- SINGLE SECTION: YOUR LOCKED LINK -->
+          <div class="link-field-card locked-link-card">
             <div class="link-field-header">
-              <div class="badge-row">
-                <span class="type-badge badge-public">PUBLIC LINK</span>
-                <span class="badge-audience">Share with visitors & subscribers</span>
-              </div>
-              <p class="link-hint">Anyone can open this to unlock the destination without logging in. Does NOT show dashboard, private link, or analytics.</p>
+              <span class="type-badge badge-locked-link">YOUR LOCKED LINK</span>
             </div>
-            <div class="input-btn-row">
-              <input type="text" id="publicUrlInput" class="facon-input link-code-input" readonly placeholder="Public link will appear here">
-              <button type="button" class="action-btn copy-btn-blue" id="copyPublicBtn" onclick="copyPublicLink()">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                <span id="copyPublicBtnText">COPY</span>
-              </button>
-              <button type="button" class="action-btn share-btn" onclick="sharePublicLink()" title="Share Link">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-              </button>
+            <div class="single-link-row">
+              <input type="text" id="lockedUrlInput" class="facon-input link-code-input" readonly placeholder="https://faconmods.netlify.app/f/AB12CD">
             </div>
           </div>
 
-          <!-- 2. PRIVATE MANAGEMENT — ONLY FOR THE CREATOR -->
-          <div class="link-field-card private-card">
-            <div class="link-field-header">
-              <div class="badge-row">
-                <span class="type-badge badge-private">PRIVATE MANAGEMENT</span>
-                <span class="badge-audience text-pink">Keep Secret — Creator Only</span>
-              </div>
-              <p class="link-hint">Authorized link to view live analytics (clicks/unlocks), edit URLs, and manage or delete this campaign.</p>
-            </div>
-            <div class="input-btn-row">
-              <input type="text" id="privateUrlInput" class="facon-input link-code-input" readonly placeholder="Private management link will appear here">
-              <button type="button" class="action-btn copy-btn-pink" id="copyPrivateBtn" onclick="copyPrivateLink()">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                <span id="copyPrivateBtnText">COPY</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="result-actions-dual">
-            <button type="button" class="open-visitor-btn" onclick="openCurrentCampaignPublic()">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-              Test Public Link
+          <!-- Clean Action Buttons: COPY LINK and TEST LINK -->
+          <div class="result-actions-single">
+            <button type="button" class="action-btn copy-locked-btn" id="copyLockedBtn" onclick="copyLockedLink()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span id="copyLockedBtnText">COPY LINK</span>
             </button>
-            <button type="button" class="open-manage-btn" onclick="openCurrentCampaignManage()">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              Manage Campaign
+            <button type="button" class="action-btn test-locked-btn" id="testLockedBtn" onclick="testLockedLink()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              <span>TEST LINK</span>
             </button>
           </div>
         </div>

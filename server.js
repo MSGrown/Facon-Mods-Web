@@ -44,6 +44,8 @@ end
 local req_uri = ngx.var.uri or ""
 if req_uri == "/" or req_uri == "/index.html" or req_uri == "/unlock.html" or req_uri == "/unlock"
    or string.match(req_uri, "^/p/")
+   or string.match(req_uri, "^/f/")
+   or string.match(req_uri, "^/l/")
    or string.match(req_uri, "^/api/campaigns/[^/]+$")
    or string.match(req_uri, "^/api/campaigns/[^/]+/unlock$")
    or string.match(req_uri, "^/api/campaigns/[^/]+/click$")
@@ -96,6 +98,22 @@ function readCampaigns() {
 
 function writeCampaigns(campaigns) {
   writeJsonFile(DATA_FILE, campaigns);
+}
+
+// Generate unique short 6-character campaign ID (e.g. AB12CD)
+function generateShortServerCampaignId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const campaigns = readCampaigns();
+  const existing = new Set(campaigns.map(c => (c.id || '').toUpperCase()));
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const bytes = crypto.randomBytes(6);
+    let id = '';
+    for (let i = 0; i < 6; i++) {
+      id += chars[bytes[i] % chars.length];
+    }
+    if (!existing.has(id)) return id;
+  }
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
 function readUsers() {
@@ -389,17 +407,37 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        if (!payload.id || !payload.destinationUrl || !Array.isArray(payload.tasks)) {
-          return sendJson(400, { error: 'Missing required fields (id, destinationUrl, tasks)' });
+        if (!payload.destinationUrl || !Array.isArray(payload.tasks)) {
+          return sendJson(400, { error: 'Missing required fields (destinationUrl, tasks)' });
+        }
+
+        const campaigns = readCampaigns();
+
+        // Prevent duplicate link generation: If identical campaign already exists, return existing
+        const duplicate = campaigns.find(c => {
+          if (!c || c.destinationUrl !== payload.destinationUrl) return false;
+          if (!Array.isArray(c.tasks) || c.tasks.length !== payload.tasks.length) return false;
+          return payload.tasks.every(pt => c.tasks.some(ct => ct.id === pt.id && ct.taskUrl === pt.taskUrl));
+        });
+
+        if (duplicate) {
+          return sendJson(200, {
+            success: true,
+            campaign: toPublicCampaign(duplicate),
+            manageKey: duplicate.manageKey
+          });
         }
 
         const currentUser = getAuthenticatedUser(req);
         // Generate cryptographically secure management key (48-character hex)
         const manageKey = payload.manageKey || crypto.randomBytes(24).toString('hex');
+        const campaignId = (payload.id && typeof payload.id === 'string' && payload.id.trim())
+          ? payload.id.trim()
+          : generateShortServerCampaignId();
 
         const newCampaign = {
-          id: payload.id,
-          title: payload.title || `Campaign ${payload.id}`,
+          id: campaignId,
+          title: payload.title || `Campaign ${campaignId}`,
           destinationUrl: payload.destinationUrl,
           tasks: payload.tasks,
           manageKey: manageKey,
@@ -410,7 +448,6 @@ const server = http.createServer((req, res) => {
           unlocks: 0
         };
 
-        const campaigns = readCampaigns();
         const existingIdx = campaigns.findIndex(c => c.id === newCampaign.id);
         if (existingIdx >= 0) {
           const existing = campaigns[existingIdx];
@@ -613,8 +650,8 @@ const server = http.createServer((req, res) => {
 
   // --- PAGE ROUTING & STATIC FILE SERVING ---
 
-  // Friendly Public Unlock Route: /unlock, /unlock.html, /p/:id
-  if (pathname === '/unlock' || pathname === '/unlock.html' || pathname.startsWith('/p/')) {
+  // Friendly Public Unlock Route: /unlock, /unlock.html, /p/:id, /f/:id, /l/:id
+  if (pathname === '/unlock' || pathname === '/unlock.html' || pathname.startsWith('/p/') || pathname.startsWith('/f/') || pathname.startsWith('/l/')) {
     const unlockHtmlPath = path.join(PUBLIC_DIR, 'unlock.html');
     fs.readFile(unlockHtmlPath, (err, content) => {
       if (err) {
