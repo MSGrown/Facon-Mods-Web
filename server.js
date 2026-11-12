@@ -14,6 +14,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'campaigns.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json');
 
 // Ensure data directory and files exist
 if (!fs.existsSync(DATA_DIR)) {
@@ -27,6 +28,9 @@ if (!fs.existsSync(USERS_FILE)) {
 }
 if (!fs.existsSync(SESSIONS_FILE)) {
   fs.writeFileSync(SESSIONS_FILE, JSON.stringify([]), 'utf8');
+}
+if (!fs.existsSync(PROGRESS_FILE)) {
+  fs.writeFileSync(PROGRESS_FILE, JSON.stringify({}), 'utf8');
 }
 
 // Self-healing check: Ensure public visitor routes bypass Google account auth bridge
@@ -130,6 +134,14 @@ function readSessions() {
 
 function writeSessions(sessions) {
   writeJsonFile(SESSIONS_FILE, sessions);
+}
+
+function readProgress() {
+  return readJsonFile(PROGRESS_FILE, {});
+}
+
+function writeProgress(progress) {
+  writeJsonFile(PROGRESS_FILE, progress);
 }
 
 // Password hashing with PBKDF2
@@ -620,6 +632,52 @@ const server = http.createServer((req, res) => {
     return sendJson(200, toPublicCampaign(campaign));
   }
 
+  // GET /api/campaigns/:id/progress (Public: Retrieve persistent visitor progress)
+  const progressGetMatch = pathname.match(/^\/api\/campaigns\/([A-Za-z0-9_-]+)\/progress$/);
+  if (req.method === 'GET' && progressGetMatch) {
+    const id = progressGetMatch[1];
+    const visitorId = parsedUrl.searchParams.get('visitorId') || 'anon';
+    const allProgress = readProgress();
+    const key = `${id}_${visitorId}`;
+    const p = allProgress[key] || { completedTasks: [], isUnlocked: false };
+    const campaigns = readCampaigns();
+    const campaign = campaigns.find(c => c.id === id);
+    if (p.isUnlocked && campaign) {
+      p.destinationUrl = campaign.destinationUrl;
+    }
+    return sendJson(200, p);
+  }
+
+  // POST /api/campaigns/:id/progress (Public: Save visitor progress persistently)
+  const progressPostMatch = pathname.match(/^\/api\/campaigns\/([A-Za-z0-9_-]+)\/progress$/);
+  if (req.method === 'POST' && progressPostMatch) {
+    const id = progressPostMatch[1];
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const visitorId = payload.visitorId || 'anon';
+        const allProgress = readProgress();
+        const key = `${id}_${visitorId}`;
+        const existing = allProgress[key] || { completedTasks: [], isUnlocked: false };
+        if (Array.isArray(payload.completedTasks)) {
+          existing.completedTasks = Array.from(new Set([...existing.completedTasks, ...payload.completedTasks]));
+        }
+        if (payload.isUnlocked) {
+          existing.isUnlocked = true;
+        }
+        existing.updatedAt = Date.now();
+        allProgress[key] = existing;
+        writeProgress(allProgress);
+        return sendJson(200, { success: true, progress: existing });
+      } catch (e) {
+        return sendJson(400, { error: 'Invalid JSON request' });
+      }
+    });
+    return;
+  }
+
   // POST /api/campaigns/:id/click (Public: Track visitor arrival)
   const clickMatch = pathname.match(/^\/api\/campaigns\/([A-Za-z0-9_-]+)\/click$/);
   if (req.method === 'POST' && clickMatch) {
@@ -633,19 +691,45 @@ const server = http.createServer((req, res) => {
     return sendJson(200, { success: true });
   }
 
-  // POST /api/campaigns/:id/unlock (Public: Releases destination URL only upon completing tasks)
+  // POST /api/campaigns/:id/unlock (Public: Releases destination URL and marks visitor unlocked permanently)
   const unlockMatch = pathname.match(/^\/api\/campaigns\/([A-Za-z0-9_-]+)\/unlock$/);
   if (req.method === 'POST' && unlockMatch) {
     const id = unlockMatch[1];
-    const campaigns = readCampaigns();
-    const campaign = campaigns.find(c => c.id === id);
-    if (campaign) {
-      campaign.unlocks = (campaign.unlocks || 0) + 1;
-      writeCampaigns(campaigns);
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      const campaigns = readCampaigns();
+      const campaign = campaigns.find(c => c.id === id);
+      if (!campaign) {
+        return sendJson(404, { error: 'Campaign not found' });
+      }
+
+      let visitorId = 'anon';
+      try {
+        if (body) {
+          const parsed = JSON.parse(body);
+          if (parsed.visitorId) visitorId = parsed.visitorId;
+        }
+      } catch (_) {}
+
+      const allProgress = readProgress();
+      const key = `${id}_${visitorId}`;
+      const existing = allProgress[key] || { completedTasks: [], isUnlocked: false };
+
+      // Increment campaign analytics only once per visitor
+      if (!existing.isUnlocked) {
+        campaign.unlocks = (campaign.unlocks || 0) + 1;
+        writeCampaigns(campaigns);
+      }
+
+      existing.isUnlocked = true;
+      existing.updatedAt = Date.now();
+      allProgress[key] = existing;
+      writeProgress(allProgress);
+
       return sendJson(200, { success: true, destinationUrl: campaign.destinationUrl });
-    } else {
-      return sendJson(404, { error: 'Campaign not found' });
-    }
+    });
+    return;
   }
 
   // --- PAGE ROUTING & STATIC FILE SERVING ---

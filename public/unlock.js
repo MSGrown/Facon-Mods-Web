@@ -1,12 +1,13 @@
 /**
  * FACONMODS Standalone Public Visitor Unlock Engine
- * Handles silent 10-second background visit verification and safe destination release
+ * Silent background verification and persistent destination unlock
  */
 
 const REQUIRED_VISIT_SECONDS = 10;
 let currentCampaign = null;
 let completedTaskIds = new Set();
-let pendingVerification = null;
+let isDestinationUnlocked = false;
+let unlockedDestinationUrl = null;
 
 // Platform Icons SVG map
 function getPlatformIcon(platform) {
@@ -66,6 +67,78 @@ function showToast(msg) {
   }, 3500);
 }
 
+// Persistent visitor ID (ensures progress survives page refreshes and browser restarts)
+function getVisitorId() {
+  try {
+    let vid = localStorage.getItem('faconmods_visitor_id');
+    if (!vid) {
+      vid = 'v_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+      localStorage.setItem('faconmods_visitor_id', vid);
+    }
+    return vid;
+  } catch (_) {
+    return 'v_client';
+  }
+}
+
+// Load visitor progress persistently from storage
+function loadVisitorProgress(campaignId) {
+  if (!campaignId) return { completedTasks: [], isUnlocked: false, destinationUrl: null };
+  const vid = getVisitorId();
+  const key = `fm_progress_${campaignId}_${vid}`;
+
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.completedTasks)) {
+        return parsed;
+      }
+    }
+  } catch (_) {}
+
+  // Fallback to legacy keys
+  try {
+    const legacy = JSON.parse(localStorage.getItem(`fm_completed_${campaignId}`) || '[]');
+    const isUnlocked = localStorage.getItem(`fm_unlocked_${campaignId}`) === 'true';
+    const dest = localStorage.getItem(`fm_dest_${campaignId}`) || null;
+    if (Array.isArray(legacy) && legacy.length > 0) {
+      return { completedTasks: legacy, isUnlocked, destinationUrl: dest };
+    }
+  } catch (_) {}
+
+  return { completedTasks: [], isUnlocked: false, destinationUrl: null };
+}
+
+// Save visitor progress persistently across storage layers
+function saveVisitorProgress(campaignId, progressData) {
+  if (!campaignId) return;
+  const vid = getVisitorId();
+  const key = `fm_progress_${campaignId}_${vid}`;
+
+  try {
+    localStorage.setItem(key, JSON.stringify(progressData));
+    localStorage.setItem(`fm_completed_${campaignId}`, JSON.stringify(progressData.completedTasks));
+    if (progressData.isUnlocked) {
+      localStorage.setItem(`fm_unlocked_${campaignId}`, 'true');
+      if (progressData.destinationUrl) {
+        localStorage.setItem(`fm_dest_${campaignId}`, progressData.destinationUrl);
+      }
+    }
+  } catch (_) {}
+
+  // Sync with backend server
+  fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/progress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      visitorId: vid,
+      completedTasks: progressData.completedTasks,
+      isUnlocked: progressData.isUnlocked
+    })
+  }).catch(() => {});
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
   setupLifecycleListeners();
@@ -79,8 +152,10 @@ function setupLifecycleListeners() {
       const raw = localStorage.getItem('fm_pending_unlock_task');
       if (raw) {
         const data = JSON.parse(raw);
-        data.departedAt = Date.now();
-        localStorage.setItem('fm_pending_unlock_task', JSON.stringify(data));
+        if (!data.departedAt) {
+          data.departedAt = Date.now();
+          localStorage.setItem('fm_pending_unlock_task', JSON.stringify(data));
+        }
       }
     } catch (_) {}
   };
@@ -134,7 +209,7 @@ async function loadCampaignFromUrl() {
   const encodedData = params.get('d') || params.get('data');
 
   if (!campaignId && !encodedData) {
-    showErrorState('No campaign specified. Please check your link.');
+    showErrorState('No destination specified. Please check your link.');
     return;
   }
 
@@ -187,27 +262,65 @@ async function loadCampaignFromUrl() {
     }
   }
 
-  showErrorState(`Campaign ${campaignId || ''} could not be loaded.`);
+  showErrorState('The requested destination could not be loaded. Please check your link.');
 }
 
-function setupCampaign(campaign) {
+async function setupCampaign(campaign) {
   currentCampaign = campaign;
+
+  // Clean heading: Never show campaign IDs or technical identifiers on public page
   const subtitle = document.getElementById('unlockCampaignSubtitle');
-  if (subtitle && campaign.title) {
-    subtitle.textContent = `Complete the required steps to unlock: ${campaign.title}`;
+  if (subtitle) {
+    subtitle.textContent = 'Complete the required steps to unlock your destination.';
   }
 
-  // Load previously completed tasks for this campaign on this device
+  // 1. Immediately restore persistent progress from localStorage without reset
+  const progress = loadVisitorProgress(campaign.id);
   completedTaskIds.clear();
+  if (Array.isArray(progress.completedTasks)) {
+    progress.completedTasks.forEach(id => completedTaskIds.add(id));
+  }
+
+  if (progress.isUnlocked) {
+    isDestinationUnlocked = true;
+    if (progress.destinationUrl) {
+      unlockedDestinationUrl = progress.destinationUrl;
+    }
+  }
+
+  // 2. Render initial UI with restored progress
+  renderTasks();
+  updateProgress();
+
+  // 3. Sync with server in background to ensure zero data loss across devices/sessions
   try {
-    const stored = JSON.parse(localStorage.getItem(`fm_completed_${campaign.id}`) || '[]');
-    if (Array.isArray(stored)) {
-      stored.forEach(id => completedTaskIds.add(id));
+    const vid = getVisitorId();
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/progress?visitorId=${encodeURIComponent(vid)}`);
+    if (res.ok) {
+      const serverProgress = await res.json();
+      if (serverProgress && Array.isArray(serverProgress.completedTasks)) {
+        serverProgress.completedTasks.forEach(id => completedTaskIds.add(id));
+      }
+      if (serverProgress && serverProgress.isUnlocked) {
+        isDestinationUnlocked = true;
+        if (serverProgress.destinationUrl) {
+          unlockedDestinationUrl = serverProgress.destinationUrl;
+        }
+      }
+
+      // Re-save merged progress
+      progress.completedTasks = Array.from(completedTaskIds);
+      progress.isUnlocked = isDestinationUnlocked || (completedTaskIds.size >= (campaign.tasks || []).length);
+      if (unlockedDestinationUrl) progress.destinationUrl = unlockedDestinationUrl;
+      saveVisitorProgress(campaign.id, progress);
+
+      // Re-render after sync
+      renderTasks();
+      updateProgress();
     }
   } catch (_) {}
 
-  renderTasks();
-  updateProgress();
+  // Check any pending return verification
   checkPendingVerification();
 }
 
@@ -219,7 +332,7 @@ function renderTasks() {
   const tasks = currentCampaign.tasks || [];
 
   if (tasks.length === 0) {
-    container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks required. You can unlock immediately.</div>`;
+    container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px;">No steps required. Click below to proceed.</div>`;
     return;
   }
 
@@ -232,6 +345,10 @@ function renderTasks() {
     const actionText = getActionLabel(task);
     const iconHtml = getPlatformIcon(task.platform);
 
+    // Clean task title and description without internal IDs or timer notes
+    const taskTitle = task.actionTitle || task.label || `Step ${index + 1}`;
+    const taskDesc = (task.desc || 'Visit link to proceed').replace(/\b(10[- ]?sec(ond)?s?|timer|countdown)\b/gi, '').trim();
+
     card.innerHTML = `
       <div class="visitor-task-main">
         <div class="visitor-task-info">
@@ -239,8 +356,8 @@ function renderTasks() {
             ${iconHtml}
           </div>
           <div>
-            <div class="visitor-task-title">${escapeHtml(task.label || task.title || 'Task ' + (index + 1))}</div>
-            <div class="visitor-task-desc">${escapeHtml(task.desc || 'Visit link to proceed')}</div>
+            <div class="visitor-task-title">${escapeHtml(taskTitle)}</div>
+            <div class="visitor-task-desc">${escapeHtml(taskDesc)}</div>
           </div>
         </div>
         ${isDone ? `
@@ -277,27 +394,30 @@ function handleTaskClick(taskId) {
   const task = (currentCampaign.tasks || []).find(t => t.id === taskId);
   if (!task || !task.taskUrl) return;
 
-  const btn = document.getElementById(`unlockTaskBtn_${taskId}`);
   const feedback = document.getElementById(`unlockTaskFeedback_${taskId}`);
-
   if (feedback) {
     feedback.className = 'task-feedback-msg';
     feedback.style.display = 'none';
   }
 
   // Save pending verification state in localStorage
+  const visitorId = getVisitorId();
   const pending = {
     campaignId: currentCampaign.id,
+    visitorId: visitorId,
     taskId: taskId,
     clickedAt: Date.now(),
     departedAt: Date.now()
   };
   localStorage.setItem('fm_pending_unlock_task', JSON.stringify(pending));
 
-  // Open task URL in the SAME tab so user leaves to the destination
-  setTimeout(() => {
-    window.location.href = task.taskUrl;
-  }, 100);
+  // Open task URL directly in browser
+  const win = window.open(task.taskUrl, '_blank');
+  if (!win || win.closed || typeof win.closed === 'undefined') {
+    setTimeout(() => {
+      window.location.href = task.taskUrl;
+    }, 150);
+  }
 }
 
 // Check pending verification when user returns to tab
@@ -322,6 +442,13 @@ function checkPendingVerification() {
   }
 
   const taskId = pending.taskId;
+
+  // If already completed, simply clear pending item without error
+  if (completedTaskIds.has(taskId)) {
+    localStorage.removeItem('fm_pending_unlock_task');
+    return;
+  }
+
   const departedAt = pending.departedAt || pending.clickedAt || Date.now();
   const awaySeconds = Math.floor((Date.now() - departedAt) / 1000);
 
@@ -330,12 +457,20 @@ function checkPendingVerification() {
   const card = document.getElementById(`unlockTaskCard_${taskId}`);
 
   if (awaySeconds >= REQUIRED_VISIT_SECONDS) {
-    // 10-second requirement satisfied
+    // 10-second requirement satisfied internally
     completedTaskIds.add(taskId);
-    try {
-      localStorage.setItem(`fm_completed_${currentCampaign.id}`, JSON.stringify(Array.from(completedTaskIds)));
-    } catch (_) {}
     localStorage.removeItem('fm_pending_unlock_task');
+
+    // Persist progress immediately
+    const progress = loadVisitorProgress(currentCampaign.id);
+    progress.completedTasks = Array.from(completedTaskIds);
+    const tasks = currentCampaign.tasks || [];
+    if (tasks.every(t => completedTaskIds.has(t.id))) {
+      progress.isUnlocked = true;
+      isDestinationUnlocked = true;
+      prefetchDestinationUrl(currentCampaign.id);
+    }
+    saveVisitorProgress(currentCampaign.id, progress);
 
     if (card) card.classList.add('verified');
     if (btn) {
@@ -354,25 +489,53 @@ function checkPendingVerification() {
 
     renderTasks();
     updateProgress();
-    showToast('Task completed! Keep going.');
+    showToast('Step completed successfully!');
   } else {
-    // Returned in less than 10 seconds: task remains incomplete
-    localStorage.removeItem('fm_pending_unlock_task');
-    if (btn) {
-      btn.classList.add('retry-state');
-      btn.disabled = false;
-      const task = (currentCampaign.tasks || []).find(t => t.id === taskId);
-      if (task) {
-        btn.textContent = getActionLabel(task);
+    // Only show failure if user actually clicked and returned too quickly (> 1.5s away)
+    const elapsedSinceClick = Date.now() - (pending.clickedAt || Date.now());
+    if (elapsedSinceClick > 1500) {
+      localStorage.removeItem('fm_pending_unlock_task');
+      if (btn) {
+        btn.classList.add('retry-state');
+        btn.disabled = false;
+        const task = (currentCampaign.tasks || []).find(t => t.id === taskId);
+        if (task) {
+          btn.textContent = getActionLabel(task);
+        }
+      }
+      if (feedback) {
+        feedback.className = 'task-feedback-msg error';
+        feedback.textContent = 'Task not completed. Please complete the step and try again.';
+        feedback.style.display = 'block';
+      }
+      showToast('Task not completed. Please try again.');
+    }
+  }
+}
+
+// Prefetch verified destination URL when all steps are completed
+async function prefetchDestinationUrl(campaignId) {
+  if (unlockedDestinationUrl) return unlockedDestinationUrl;
+  try {
+    const vid = getVisitorId();
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/unlock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visitorId: vid })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.destinationUrl) {
+        unlockedDestinationUrl = data.destinationUrl;
+        const progress = loadVisitorProgress(campaignId);
+        progress.isUnlocked = true;
+        progress.destinationUrl = unlockedDestinationUrl;
+        saveVisitorProgress(campaignId, progress);
+        return unlockedDestinationUrl;
       }
     }
-    if (feedback) {
-      feedback.className = 'task-feedback-msg error';
-      feedback.textContent = 'Task not completed. Please visit the link for at least 10 seconds.';
-      feedback.style.display = 'block';
-    }
-    showToast('Task not completed. Please try again.');
-  }
+  } catch (_) {}
+  return currentCampaign ? currentCampaign.destinationUrl : null;
 }
 
 // Update live progress bar & unlock status
@@ -381,17 +544,18 @@ function updateProgress() {
   const tasks = currentCampaign.tasks || [];
   const total = tasks.length;
   const completed = tasks.filter(t => completedTaskIds.has(t.id)).length;
-  const percent = total === 0 ? 100 : Math.round((completed / total) * 100);
+  const allDone = (total === 0 || completed >= total || isDestinationUnlocked);
+  const percent = total === 0 ? 100 : (allDone ? 100 : Math.round((completed / total) * 100));
 
   const textEl = document.getElementById('unlockProgressText');
   const percentEl = document.getElementById('unlockProgressPercent');
   const fillEl = document.getElementById('unlockProgressBarFill');
 
-  if (textEl) textEl.textContent = `Tasks: ${completed} / ${total} completed`;
+  if (textEl) textEl.textContent = `Tasks: ${allDone ? total : completed} / ${total} completed`;
   if (percentEl) percentEl.textContent = `${percent}%`;
   if (fillEl) fillEl.style.width = `${percent}%`;
 
-  // Destination Lock Card state
+  // Destination Lock Card state (Clean single button design)
   const lockCard = document.getElementById('unlockDestinationLockCard');
   const lockClosed = document.getElementById('unlockLockClosedSvg');
   const lockOpen = document.getElementById('unlockLockOpenSvg');
@@ -399,84 +563,100 @@ function updateProgress() {
   const desc = document.getElementById('unlockLockDescription');
   const proceedBtn = document.getElementById('unlockProceedBtn');
   const proceedText = document.getElementById('unlockProceedBtnText');
-
-  const allDone = (completed >= total);
+  const proceedIcon = document.getElementById('unlockProceedBtnIcon');
 
   if (allDone) {
     if (lockCard) lockCard.classList.add('unlocked');
     if (lockClosed) lockClosed.style.display = 'none';
     if (lockOpen) lockOpen.style.display = 'block';
-    if (heading) heading.textContent = 'DESTINATION UNLOCKED!';
-    if (desc) desc.textContent = 'All tasks completed successfully. Click below to access your destination.';
+
+    if (heading) heading.textContent = '✓ DESTINATION UNLOCKED!';
+    if (desc) desc.textContent = 'All required steps completed successfully.';
+
     if (proceedBtn) {
       proceedBtn.disabled = false;
       proceedBtn.classList.add('ready');
     }
-    if (proceedText) proceedText.textContent = 'UNLOCK & PROCEED';
+    if (proceedText) proceedText.textContent = 'GO TO DESTINATION';
+    if (proceedIcon) {
+      proceedIcon.innerHTML = `
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <line x1="10" y1="14" x2="21" y2="3"></line>
+        </svg>
+      `;
+    }
   } else {
     const remaining = total - completed;
     if (lockCard) lockCard.classList.remove('unlocked');
     if (lockClosed) lockClosed.style.display = 'block';
     if (lockOpen) lockOpen.style.display = 'none';
+
     if (heading) heading.textContent = 'DESTINATION IS LOCKED';
-    if (desc) desc.textContent = 'Complete all the required steps above to unlock the destination link.';
+    if (desc) desc.textContent = 'Complete all the required steps above to unlock your destination.';
+
     if (proceedBtn) {
       proceedBtn.disabled = true;
       proceedBtn.classList.remove('ready');
     }
     if (proceedText) proceedText.textContent = `LOCKED (${remaining} REMAINING)`;
+    if (proceedIcon) {
+      proceedIcon.innerHTML = `
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      `;
+    }
   }
 }
 
-// Handle final Unlock & Proceed button click
+// Handle final GO TO DESTINATION button click
 async function handleUnlockProceed() {
   if (!currentCampaign) return;
 
   const btn = document.getElementById('unlockProceedBtn');
   if (btn) btn.disabled = true;
 
-  showToast('Unlocking destination link...');
+  // Retrieve destination URL
+  let destinationUrl = unlockedDestinationUrl;
 
-  let destinationUrl = currentCampaign.destinationUrl;
-
-  // Fetch verified destination URL from server
-  try {
-    const res = await fetch(`/api/campaigns/${currentCampaign.id}/unlock`, {
-      method: 'POST'
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.destinationUrl) {
-        destinationUrl = data.destinationUrl;
-      }
+  if (!destinationUrl) {
+    const progress = loadVisitorProgress(currentCampaign.id);
+    if (progress && progress.destinationUrl) {
+      destinationUrl = progress.destinationUrl;
     }
-  } catch (err) {
-    console.warn('Unlock API error, using available destination:', err);
   }
 
   if (!destinationUrl) {
-    showToast('Error retrieving destination. Please contact campaign creator.');
-    if (btn) btn.disabled = false;
+    destinationUrl = await prefetchDestinationUrl(currentCampaign.id);
+  }
+
+  if (!destinationUrl && currentCampaign.destinationUrl) {
+    destinationUrl = currentCampaign.destinationUrl;
+  }
+
+  if (btn) btn.disabled = false;
+
+  if (!destinationUrl) {
+    showToast('Destination link could not be retrieved.');
     return;
   }
 
-  // Display revealed destination card
-  const revealedBox = document.getElementById('destinationRevealedBox');
-  const revealedInput = document.getElementById('revealedDestinationUrl');
-  const revealedBtn = document.getElementById('revealedDestinationBtn');
+  // Save unlocked state permanently so refreshing never resets it
+  isDestinationUnlocked = true;
+  unlockedDestinationUrl = destinationUrl;
+  const progress = loadVisitorProgress(currentCampaign.id);
+  progress.isUnlocked = true;
+  progress.destinationUrl = destinationUrl;
+  saveVisitorProgress(currentCampaign.id, progress);
 
-  if (revealedBox && revealedInput && revealedBtn) {
-    revealedInput.value = destinationUrl;
-    revealedBtn.href = destinationUrl;
-    revealedBox.style.display = 'block';
-    revealedBox.scrollIntoView({ behavior: 'smooth' });
-  }
-
-  showToast('Destination unlocked! Redirecting in 1.5 seconds...');
-
-  setTimeout(() => {
+  // Directly open destination URL in browser
+  const win = window.open(destinationUrl, '_blank');
+  if (!win || win.closed || typeof win.closed === 'undefined') {
     window.location.href = destinationUrl;
-  }, 1500);
+  }
 }
 
 function showErrorState(msg) {
@@ -484,7 +664,7 @@ function showErrorState(msg) {
   if (container) {
     container.innerHTML = `
       <div style="background: #FEF2F2; border: 1.5px solid #F87171; border-radius: 12px; padding: 20px; text-align: center; color: #991B1B;">
-        <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Link Not Found</h3>
+        <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Destination Unavailable</h3>
         <p style="font-size: 13px;">${escapeHtml(msg)}</p>
       </div>
     `;

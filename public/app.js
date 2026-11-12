@@ -907,7 +907,7 @@ function loadVisitorCampaignDirect(campaign) {
 
   const metaEl = document.getElementById('visitorCampaignMeta');
   if (metaEl) {
-    metaEl.textContent = `Campaign: ${campaign.id} • Complete the ${campaign.tasks.length} steps below to unlock destination.`;
+    metaEl.textContent = 'Complete the required steps to unlock your destination.';
   }
 
   renderVisitorTasks(campaign);
@@ -1151,19 +1151,19 @@ function updateVisitorProgress() {
   if (completed === total && total > 0) {
     // Unlocked!
     if (lockCard) lockCard.classList.add('unlocked');
-    if (lockHeading) lockHeading.textContent = 'DESTINATION UNLOCKED!';
-    if (lockDesc) lockDesc.textContent = 'All steps completed and verified! Click the button below to proceed to your target link.';
+    if (lockHeading) lockHeading.textContent = '✓ DESTINATION UNLOCKED!';
+    if (lockDesc) lockDesc.textContent = 'All required steps completed successfully.';
     if (unlockBtn) {
       unlockBtn.disabled = false;
     }
-    if (unlockBtnText) unlockBtnText.textContent = 'UNLOCK & PROCEED';
+    if (unlockBtnText) unlockBtnText.textContent = 'GO TO DESTINATION';
     if (lockClosed) lockClosed.style.display = 'none';
     if (lockOpen) lockOpen.style.display = 'inline-block';
   } else {
     // Locked
     if (lockCard) lockCard.classList.remove('unlocked');
     if (lockHeading) lockHeading.textContent = 'DESTINATION IS LOCKED';
-    if (lockDesc) lockDesc.textContent = 'Destination URL is locked. Visit and verify each required task above to unlock.';
+    if (lockDesc) lockDesc.textContent = 'Complete all the required steps above to unlock your destination.';
     if (unlockBtn) unlockBtn.disabled = true;
     if (unlockBtnText) unlockBtnText.textContent = `LOCKED (${total - completed} REMAINING)`;
     if (lockClosed) lockClosed.style.display = 'inline-block';
@@ -1171,7 +1171,7 @@ function updateVisitorProgress() {
   }
 }
 
-// Unlock Destination Action
+// Unlock Destination Action: directly opens destination in browser
 function handleUnlockDestination() {
   if (!currentVisitorCampaign) return;
 
@@ -1181,11 +1181,15 @@ function handleUnlockDestination() {
   fetch(`/api/campaigns/${currentVisitorCampaign.id}/unlock`, { method: 'POST' }).catch(() => {});
 
   const destination = currentVisitorCampaign.destinationUrl;
-  showToast('Redirecting to destination...');
+  if (!destination) {
+    showToast('Destination link could not be retrieved.');
+    return;
+  }
 
-  setTimeout(() => {
+  const win = window.open(destination, '_blank');
+  if (!win || win.closed || typeof win.closed === 'undefined') {
     window.location.href = destination;
-  }, 1000);
+  }
 }
 
 // Local Storage & Campaigns Management

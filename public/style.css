@@ -1057,9 +1057,18 @@ body {
 }
 
 .destination-lock-card.unlocked .unlock-proceed-btn {
-  background: var(--color-green);
+  background: var(--color-green, #10B981);
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
+}
+
+.destination-lock-card.unlocked .unlock-proceed-btn:hover {
+  background: #059669;
+  transform: translateY(-1px);
+}
+
+.destination-lock-card.unlocked .unlock-proceed-btn:active {
+  transform: translateY(0);
 }
 
 /* Campaigns Screen */
