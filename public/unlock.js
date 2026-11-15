@@ -81,62 +81,13 @@ function getVisitorId() {
   }
 }
 
-// Load visitor progress persistently from storage
+// In-memory unlock session: do not load or save persistent progress across reloads
 function loadVisitorProgress(campaignId) {
-  if (!campaignId) return { completedTasks: [], isUnlocked: false, destinationUrl: null };
-  const vid = getVisitorId();
-  const key = `fm_progress_${campaignId}_${vid}`;
-
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.completedTasks)) {
-        return parsed;
-      }
-    }
-  } catch (_) {}
-
-  // Fallback to legacy keys
-  try {
-    const legacy = JSON.parse(localStorage.getItem(`fm_completed_${campaignId}`) || '[]');
-    const isUnlocked = localStorage.getItem(`fm_unlocked_${campaignId}`) === 'true';
-    const dest = localStorage.getItem(`fm_dest_${campaignId}`) || null;
-    if (Array.isArray(legacy) && legacy.length > 0) {
-      return { completedTasks: legacy, isUnlocked, destinationUrl: dest };
-    }
-  } catch (_) {}
-
   return { completedTasks: [], isUnlocked: false, destinationUrl: null };
 }
 
-// Save visitor progress persistently across storage layers
 function saveVisitorProgress(campaignId, progressData) {
-  if (!campaignId) return;
-  const vid = getVisitorId();
-  const key = `fm_progress_${campaignId}_${vid}`;
-
-  try {
-    localStorage.setItem(key, JSON.stringify(progressData));
-    localStorage.setItem(`fm_completed_${campaignId}`, JSON.stringify(progressData.completedTasks));
-    if (progressData.isUnlocked) {
-      localStorage.setItem(`fm_unlocked_${campaignId}`, 'true');
-      if (progressData.destinationUrl) {
-        localStorage.setItem(`fm_dest_${campaignId}`, progressData.destinationUrl);
-      }
-    }
-  } catch (_) {}
-
-  // Sync with backend server
-  fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/progress`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      visitorId: vid,
-      completedTasks: progressData.completedTasks,
-      isUnlocked: progressData.isUnlocked
-    })
-  }).catch(() => {});
+  // Requirement: Do not save task completion permanently across page refreshes
 }
 
 // Initialize on page load
@@ -305,53 +256,28 @@ async function setupCampaign(campaign) {
     subtitle.textContent = 'Complete the required steps to unlock your destination.';
   }
 
-  // 1. Immediately restore persistent progress from localStorage without reset
-  const progress = loadVisitorProgress(campaign.id);
+  // Requirement: RESET UNLOCK PROGRESS ON PAGE REFRESH
+  // 1. Reset all completed task states immediately after page reload
   completedTaskIds.clear();
-  if (Array.isArray(progress.completedTasks)) {
-    progress.completedTasks.forEach(id => completedTaskIds.add(id));
-  }
+  isDestinationUnlocked = false;
+  unlockedDestinationUrl = null;
 
-  if (progress.isUnlocked) {
-    isDestinationUnlocked = true;
-    if (progress.destinationUrl) {
-      unlockedDestinationUrl = progress.destinationUrl;
-    }
-  }
+  // Clear any old stored progress keys from localStorage & sessionStorage
+  try {
+    const vid = getVisitorId();
+    localStorage.removeItem('fm_pending_unlock_task');
+    localStorage.removeItem(`fm_progress_${campaign.id}_${vid}`);
+    localStorage.removeItem(`fm_completed_${campaign.id}`);
+    localStorage.removeItem(`fm_unlocked_${campaign.id}`);
+    localStorage.removeItem(`fm_dest_${campaign.id}`);
+    sessionStorage.clear();
+  } catch (_) {}
 
-  // 2. Render initial UI with restored progress
+  // 2. Render initial UI with 0 completed tasks and 0% progress
   renderTasks();
   updateProgress();
 
-  // 3. Sync with server in background to ensure zero data loss across devices/sessions
-  try {
-    const vid = getVisitorId();
-    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/progress?visitorId=${encodeURIComponent(vid)}`);
-    if (res.ok) {
-      const serverProgress = await res.json();
-      if (serverProgress && Array.isArray(serverProgress.completedTasks)) {
-        serverProgress.completedTasks.forEach(id => completedTaskIds.add(id));
-      }
-      if (serverProgress && serverProgress.isUnlocked) {
-        isDestinationUnlocked = true;
-        if (serverProgress.destinationUrl) {
-          unlockedDestinationUrl = serverProgress.destinationUrl;
-        }
-      }
-
-      // Re-save merged progress
-      progress.completedTasks = Array.from(completedTaskIds);
-      progress.isUnlocked = isDestinationUnlocked || (completedTaskIds.size >= (campaign.tasks || []).length);
-      if (unlockedDestinationUrl) progress.destinationUrl = unlockedDestinationUrl;
-      saveVisitorProgress(campaign.id, progress);
-
-      // Re-render after sync
-      renderTasks();
-      updateProgress();
-    }
-  } catch (_) {}
-
-  // Check any pending return verification
+  // 3. Check any pending return verification from task clicks in this session
   checkPendingVerification();
 }
 
@@ -492,16 +418,11 @@ function checkPendingVerification() {
     completedTaskIds.add(taskId);
     localStorage.removeItem('fm_pending_unlock_task');
 
-    // Persist progress immediately
-    const progress = loadVisitorProgress(currentCampaign.id);
-    progress.completedTasks = Array.from(completedTaskIds);
     const tasks = currentCampaign.tasks || [];
     if (tasks.every(t => completedTaskIds.has(t.id))) {
-      progress.isUnlocked = true;
       isDestinationUnlocked = true;
       prefetchDestinationUrl(currentCampaign.id);
     }
-    saveVisitorProgress(currentCampaign.id, progress);
 
     if (card) card.classList.add('verified');
     if (btn) {
@@ -558,10 +479,6 @@ async function prefetchDestinationUrl(campaignId) {
       const data = await res.json();
       if (data && data.destinationUrl) {
         unlockedDestinationUrl = data.destinationUrl;
-        const progress = loadVisitorProgress(campaignId);
-        progress.isUnlocked = true;
-        progress.destinationUrl = unlockedDestinationUrl;
-        saveVisitorProgress(campaignId, progress);
         return unlockedDestinationUrl;
       }
     }
@@ -654,13 +571,6 @@ async function handleUnlockProceed() {
   let destinationUrl = unlockedDestinationUrl;
 
   if (!destinationUrl) {
-    const progress = loadVisitorProgress(currentCampaign.id);
-    if (progress && progress.destinationUrl) {
-      destinationUrl = progress.destinationUrl;
-    }
-  }
-
-  if (!destinationUrl) {
     destinationUrl = await prefetchDestinationUrl(currentCampaign.id);
   }
 
@@ -675,13 +585,8 @@ async function handleUnlockProceed() {
     return;
   }
 
-  // Save unlocked state permanently so refreshing never resets it
   isDestinationUnlocked = true;
   unlockedDestinationUrl = destinationUrl;
-  const progress = loadVisitorProgress(currentCampaign.id);
-  progress.isUnlocked = true;
-  progress.destinationUrl = destinationUrl;
-  saveVisitorProgress(currentCampaign.id, progress);
 
   // Directly open destination URL in browser
   const win = window.open(destinationUrl, '_blank');
